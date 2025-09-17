@@ -1,4 +1,10 @@
 # VHDL-1er-Proyecto
+
+**Integrantes:**
+- Pablo Collazos
+- Sergio Cruz
+- Cristian Cuastumal
+
 ```mermaid
 flowchart TD
     %% ================================
