@@ -1,0 +1,37 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity debouncer is
+    port (
+        clk_tick : in  STD_LOGIC;
+        rst      : in  STD_LOGIC;  -- ACTIVO EN BAJO
+        sig_in   : in  STD_LOGIC;
+        sig_out  : out STD_LOGIC
+    );
+end debouncer;
+
+architecture Behavioral of debouncer is
+    signal count : integer := 0;
+    signal stable_signal : STD_LOGIC := '0';
+begin
+    process(clk_tick, rst)
+    begin
+        if rst = '0' then  -- ACTIVO EN BAJO
+            count <= 0;
+            stable_signal <= '0';
+        elsif rising_edge(clk_tick) then
+            if sig_in /= stable_signal then
+                count <= count + 1;
+                if count >= 10 then  -- 10 ciclos estables
+                    stable_signal <= sig_in;
+                    count <= 0;
+                end if;
+            else
+                count <= 0;
+            end if;
+        end if;
+    end process;
+    
+    sig_out <= stable_signal;
+end Behavioral;
