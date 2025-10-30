@@ -367,3 +367,4 @@ begin
   punto_decimal <= '0' when (mostrar_tiempo_enable = '1') else '1';
 
 end Behavioral;
+
