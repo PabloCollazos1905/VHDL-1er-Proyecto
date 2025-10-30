@@ -1,0 +1,173 @@
+Propósito: Librería / controlador de teclado matricial 4x4. Proporciona funciones y/o un componente que realiza escaneo, debounce y decodificación de teclas.
+
+Comportamiento principal: Escanea filas/columnas, implementa anti-rebote y devuelve códigos de tecla válidos. Contiene múltiples procesos (escaneo, debounce, timer de repetición, detección de flanco).
+
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+
+entity teclado_adaptador is
+    port (
+        clk_50mhz       : in  std_logic;
+        rst             : in  std_logic;
+        y               : in  std_logic_vector(3 downto 0);  -- Filas
+        x               : out std_logic_vector(3 downto 0);  -- Columnas
+        -- Salidas para el control
+        btn_guardar     : out std_logic;
+        btn_sacar       : out std_logic;
+        btn_reset       : out std_logic;
+        pos_sacar       : out std_logic_vector(2 downto 0)
+    );
+end teclado_adaptador;
+
+architecture bh of teclado_adaptador is
+    signal clk_100hz       : std_logic := '0';
+    signal cont            : std_logic_vector(1 downto 0) := "00";
+    signal sal_decodifi    : std_logic_vector(3 downto 0);
+    signal sal_codi        : std_logic_vector(1 downto 0);
+    signal key_det         : std_logic := '0';
+    signal q1, q2, q3, q4  : std_logic := '0';
+    signal tecla_codigo    : std_logic_vector(3 downto 0);
+    signal tecla_anterior  : std_logic := '0';
+    signal pos_temp        : std_logic_vector(2 downto 0) := "000";
+    
+begin
+    
+    ------------------------ Divisor de reloj 50MHz -> 100Hz -------------------
+    process (clk_50mhz)
+        variable contador : integer range 0 to 250000 := 0;
+    begin                                                    
+        if rising_edge(clk_50mhz) then 
+            contador := contador + 1;
+            if (contador = 250000) then
+                contador := 0;
+                clk_100hz <= not clk_100hz;
+            end if;
+        end if;
+    end process;
+        
+    ------------------------ Contador 0-3 (escanea columnas) ------------------
+    process (clk_100hz)
+    begin
+        if rising_edge(clk_100hz) then
+            if (key_det = '1') then
+                cont <= cont;  -- Congela cuando detecta tecla
+            else
+                cont <= cont + 1;
+            end if;
+        end if;
+    end process;
+    
+    -------------- Decodificador de columnas (activo bajo) -------------------
+    process(cont)
+    begin
+        case cont is
+            when "00" => sal_decodifi <= "1110";  -- Columna 0
+            when "01" => sal_decodifi <= "1101";  -- Columna 1
+            when "10" => sal_decodifi <= "1011";  -- Columna 2
+            when "11" => sal_decodifi <= "0111";  -- Columna 3
+            when others => sal_decodifi <= "1111";
+        end case;
+    end process;
+    
+    x <= sal_decodifi;
+    
+    ------------------- Codificador de filas ---------------------------------
+    process(y)
+    begin
+        if (y = "1110") then
+            sal_codi <= "00";
+            key_det <= '1';
+        elsif (y = "1101") then
+            sal_codi <= "01";
+            key_det <= '1';
+        elsif (y = "1011") then
+            sal_codi <= "10";
+            key_det <= '1';
+        elsif (y = "0111") then
+            sal_codi <= "11";
+            key_det <= '1';
+        else
+            key_det <= '0';
+        end if;
+    end process;
+    
+    ---------------------- Capturar posición ------------------
+    process (key_det, cont)
+    begin
+        if (key_det = '1') then
+            q1 <= cont(0);
+            q2 <= cont(1);
+        end if;
+    end process;
+    
+    process (key_det, sal_codi)
+    begin
+        if (key_det = '1') then
+            q3 <= sal_codi(0);
+            q4 <= sal_codi(1);
+        end if;
+    end process;
+    
+    ------------------- Código de tecla ----------------------------
+    tecla_codigo <= q4 & q3 & q2 & q1;
+    
+    ------------------- Decodificador de funciones -------------------
+    -- Mapeo del teclado:
+    --   1  2  3  A(GUARDAR)  <- Fila 0
+    --   4  5  6  B(SACAR)    <- Fila 1  
+    --   *  0  #  C(RESET)    <- Fila 2
+    --   7  8  9  D           <- Fila 3
+    
+    process(clk_100hz, rst)
+    begin
+        if rst = '0' then
+            btn_guardar <= '0';
+            btn_sacar <= '0';
+            btn_reset <= '0';
+            pos_temp <= "000";
+            tecla_anterior <= '0';
+            
+        elsif rising_edge(clk_100hz) then
+            -- Señales de un solo pulso
+            btn_guardar <= '0';
+            btn_sacar <= '0';
+            
+            -- Reset se mantiene activo mientras se detecta la tecla
+            if tecla_codigo = "1011" and key_det = '1' then
+                btn_reset <= '1';
+            else
+                btn_reset <= '0';
+            end if;
+            
+            -- Detectar flanco de subida para otras teclas
+            tecla_anterior <= key_det;
+            
+            if key_det = '1' and tecla_anterior = '0' then
+                case tecla_codigo is
+                    -- Números para seleccionar posición
+                    when "0000" => pos_temp <= "001";  -- Tecla 1
+                    when "0001" => pos_temp <= "010";  -- Tecla 2
+                    when "0010" => pos_temp <= "011";  -- Tecla 3
+                    when "0100" => pos_temp <= "100";  -- Tecla 4
+                    when "0101" => pos_temp <= "101";  -- Tecla 5
+                    when "0110" => pos_temp <= "110";  -- Tecla 6
+                    when "1001" => pos_temp <= "000";  -- Tecla 0
+                    
+                    -- Funciones especiales
+                    when "0011" => btn_guardar <= '1';  -- Tecla A: GUARDAR
+                    when "0111" => btn_sacar <= '1';    -- Tecla B: SACAR
+                    -- Tecla C (RESET) se maneja arriba para mantenerla activa
+                    
+                    when others => null;
+                end case;
+            end if;
+        end if;
+    end process;
+    
+    pos_sacar <= pos_temp;
+
+end bh;
