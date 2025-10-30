@@ -1,0 +1,40 @@
+Propósito: Generador de señales de baja frecuencia a partir del reloj maestro. Se usa para crear pulsos de temporización (1 Hz, ms, etc.) para parpadeos, temporizadores o divisores de tiempo.
+Comportamiento principal: Implementa contadores sincronizados con clk y produce salidas divididas. Tiene procesos que cuentan y generan señales de enable periódicas.
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity DivisordeFrecuencia is
+    generic (
+        DIVISOR : integer := 50000
+    );
+    port (
+        clk_in  : in  STD_LOGIC;
+        rst     : in  STD_LOGIC;  -- ACTIVO EN BAJO
+        clk_out : out STD_LOGIC
+    );
+end DivisordeFrecuencia;
+
+architecture Behavioral of DivisordeFrecuencia is
+    signal contador : integer := 0;
+    signal clk_aux  : STD_LOGIC := '0';
+begin
+    process(clk_in, rst)
+    begin
+        if rst = '0' then  -- ACTIVO EN BAJO
+            contador <= 0;
+            clk_aux <= '0';
+        elsif rising_edge(clk_in) then
+            if contador >= (DIVISOR - 1) then
+                contador <= 0;
+                clk_aux <= not clk_aux;
+            else
+                contador <= contador + 1;
+            end if;
+        end if;
+    end process;
+    
+    clk_out <= clk_aux;
+end Behavioral;
