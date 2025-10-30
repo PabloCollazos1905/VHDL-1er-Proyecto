@@ -1,0 +1,100 @@
+Propósito: Temporizador que contabiliza el tiempo del vehículo estacionado. Lleva tiempo_actual en segundos y descompone en minutos/segundos para el display.
+
+Comportamiento principal: Incrementa un contador base (1 Hz enable desde DivisordeFrecuencia) y calcula minutos/segundos y dígitos decenas/unidades para multiplexar 7-seg.
+
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity timer_parqueo is
+  generic (
+    SLOTS : integer := 7
+  );
+  port (
+    clk_1hz       : in  std_logic;
+    rst           : in  std_logic;
+    ocupacion     : in  std_logic_vector(6 downto 0);
+    pos_guardar   : in  integer range 0 to 6;
+    guardar_event : in  std_logic;
+    pos_sacando   : in  integer range 0 to 6;
+    mostrar_enable: in  std_logic;
+    tiempo_minutos: out integer range 0 to 99;
+    minutos_dec   : out integer range 0 to 9;
+    minutos_uni   : out integer range 0 to 9;
+    segundos_dec  : out integer range 0 to 9;
+    segundos_uni  : out integer range 0 to 9
+  );
+end timer_parqueo;
+
+architecture Behavioral of timer_parqueo is
+  type time_array is array (0 to 6) of integer range 0 to 5999;
+  signal tiempo_slots : time_array := (others => 0);
+  type frozen_time_array is array (0 to 6) of integer range 0 to 5999;
+  signal tiempo_congelado : frozen_time_array := (others => 0);
+  signal slot_congelado : std_logic_vector(6 downto 0) := (others => '0');
+  signal tiempo_actual : integer range 0 to 5999 := 0;
+  signal minutos_total : integer range 0 to 99;
+  signal segundos_total : integer range 0 to 59;
+  signal mostrar_enable_prev : std_logic := '0';
+  signal mostrar_recien_activado : std_logic := '0';
+begin
+
+  process(clk_1hz, rst)
+  begin
+    if rst = '0' then
+      mostrar_enable_prev <= '0';
+      mostrar_recien_activado <= '0';
+    elsif rising_edge(clk_1hz) then
+      mostrar_enable_prev <= mostrar_enable;
+      if mostrar_enable = '1' and mostrar_enable_prev = '0' then
+        mostrar_recien_activado <= '1';
+      else
+        mostrar_recien_activado <= '0';
+      end if;
+    end if;
+  end process;
+
+  process(clk_1hz, rst)
+  begin
+    if rst = '0' then
+      tiempo_slots <= (others => 0);
+      tiempo_congelado <= (others => 0);
+      slot_congelado <= (others => '0');
+    elsif rising_edge(clk_1hz) then
+      if guardar_event = '1' then
+        tiempo_slots(pos_guardar) <= 0;
+        slot_congelado(pos_guardar) <= '0';
+      end if;
+      if mostrar_recien_activado = '1' then
+        tiempo_congelado(pos_sacando) <= tiempo_slots(pos_sacando);
+        slot_congelado(pos_sacando) <= '1';
+      end if;
+      for i in 0 to 6 loop
+        if ocupacion(i) = '1' and slot_congelado(i) = '0' then
+          if tiempo_slots(i) < 5999 then
+            tiempo_slots(i) <= tiempo_slots(i) + 1;
+          end if;
+        elsif ocupacion(i) = '0' then
+          tiempo_slots(i) <= 0;
+          tiempo_congelado(i) <= 0;
+          slot_congelado(i) <= '0';
+        end if;
+      end loop;
+    end if;
+  end process;
+  
+  tiempo_actual <= tiempo_congelado(pos_sacando) when (mostrar_enable = '1' and slot_congelado(pos_sacando) = '1') 
+                   else tiempo_slots(pos_sacando) when mostrar_enable = '1'
+                   else 0;
+  
+  minutos_total <= tiempo_actual / 60;
+  segundos_total <= tiempo_actual mod 60;
+  tiempo_minutos <= minutos_total;
+  minutos_dec <= minutos_total / 10;
+  minutos_uni <= minutos_total mod 10;
+  segundos_dec <= segundos_total / 10;
+  segundos_uni <= segundos_total mod 10;
+
+end Behavioral;
