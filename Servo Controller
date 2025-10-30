@@ -1,0 +1,58 @@
+Propósito: Control de servo/motor (posiblemente para ajuste fino del posicionamiento o control de puerta).
+
+Comportamiento principal: Genera señales PWM o secuencia de control, acepta comandos de dirección y velocidad, y posee lógica para arrancar/detener e invertir sentido.
+
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity servo_controller is
+  port (
+    clk        : in  std_logic;      -- Reloj FPGA 50 MHz
+    rst        : in  std_logic;      -- Reset activo en BAJO
+    enable     : in  std_logic;      -- '1' para 180°, '0' para 0°
+    servo_pwm  : out std_logic       -- Señal PWM al servo
+  );
+end entity;
+
+architecture Behavioral of servo_controller is
+  
+  constant CLK_FREQ    : integer := 50_000_000;
+  constant PWM_PERIOD  : integer := CLK_FREQ / 50;  -- 20 ms = 1,000,000 ciclos
+  
+  -- Valores para SG90
+  constant PULSE_0_DEG   : integer := 50000;   -- 1.0 ms (0°)
+  constant PULSE_180_DEG : integer := 100000;  -- 2.0 ms (180°)
+  
+  signal counter : integer range 0 to PWM_PERIOD := 0;
+  signal pulse_width : integer range PULSE_0_DEG to PULSE_180_DEG := PULSE_0_DEG;
+  
+begin
+
+  -- Seleccionar posición según enable
+  pulse_width <= PULSE_180_DEG when enable = '1' else PULSE_0_DEG;
+
+  -- Generador PWM
+  process(clk, rst)
+  begin
+    if rst = '0' then
+      counter <= 0;
+      servo_pwm <= '0';
+    elsif rising_edge(clk) then
+      if counter >= PWM_PERIOD - 1 then
+        counter <= 0;
+      else
+        counter <= counter + 1;
+      end if;
+      
+      if counter < pulse_width then
+        servo_pwm <= '1';
+      else
+        servo_pwm <= '0';
+      end if;
+    end if;
+  end process;
+
+end Behavioral;
