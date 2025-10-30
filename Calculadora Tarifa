@@ -1,0 +1,36 @@
+Propósito: Calcula la tarifa/tiempo de parqueo dependiente de las monedas introducidas (identifica 500 y 1000 pesos y acumula creditos/minutos).
+
+Comportamiento principal: Recibe pulsos de detección de monedas y actualiza contadores de crédito y/o tiempo disponible. Puede convertir crédito a segundos o minutos para mostrar en display.
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity calculadora_tarifa is
+  port (
+    tiempo_minutos : in  integer range 0 to 99;
+    tarifa_total   : out integer range 0 to 99000
+  );
+end calculadora_tarifa;
+
+architecture Behavioral of calculadora_tarifa is
+begin
+  process(tiempo_minutos)
+    variable tarifa : integer range 0 to 99000;
+  begin
+    if tiempo_minutos = 0 then
+      tarifa := 500;  -- Mínimo $500
+    elsif tiempo_minutos <= 15 then
+      tarifa := 500;
+    elsif tiempo_minutos <= 30 then
+      tarifa := 1000;
+    elsif tiempo_minutos <= 60 then
+      tarifa := 2000;
+    else
+      -- $2000 base + $100 por cada minuto adicional después de 60
+      tarifa := 2000 + ((tiempo_minutos - 60) * 100);
+    end if;
+    tarifa_total <= tarifa;
+  end process;
+end Behavioral;
