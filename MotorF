@@ -1,0 +1,56 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity motorf is
+    port (
+        clk      : in  STD_LOGIC;  -- YA debe ser clk_tick (50,000 dividido)
+        sw_m     : in  STD_LOGIC;
+        sw_giro  : in  STD_LOGIC;
+        rst      : in  STD_LOGIC;
+        rst_div  : in  STD_LOGIC;
+        sw_vel   : in  STD_LOGIC;
+        set_o    : in  STD_LOGIC;
+        salida   : out STD_LOGIC_VECTOR(3 downto 0)
+    );
+end motorf;
+
+architecture Behavioral of motorf is
+    signal paso_actual : integer range 0 to 3 := 0;
+    signal salida_reg  : STD_LOGIC_VECTOR(3 downto 0) := "0000";
+begin
+    process(clk, rst)
+    begin
+        if rst = '0' then
+            paso_actual <= 0;
+            salida_reg <= "0000";
+        elsif rising_edge(clk) then
+            if sw_m = '1' then
+                -- SIN CONTADOR INTERNO - usa clk directamente
+                if sw_giro = '1' then
+                    paso_actual <= (paso_actual + 1) mod 4;
+                else
+                    if paso_actual = 0 then
+                        paso_actual <= 3;
+                    else
+                        paso_actual <= paso_actual - 1;
+                    end if;
+                end if;
+                
+                -- Secuencia de pasos
+                case paso_actual is
+                    when 0 => salida_reg <= "1000";
+                    when 1 => salida_reg <= "0100";
+                    when 2 => salida_reg <= "0010";
+                    when 3 => salida_reg <= "0001";
+                    when others => salida_reg <= "0000";
+                end case;
+            else
+                salida_reg <= "0000";
+            end if;
+        end if;
+    end process;
+
+    salida <= salida_reg;
+
+end Behavioral;
