@@ -1,0 +1,58 @@
+Propósito: Detector de posición simple (sensores de tope o encoders simples) que informa cuando la torre/motor alcanzó la posición deseada.
+
+Comportamiento principal: Lee entradas de sensores y genera pos_ok o index de posición. Puede incluir debounce y verificación de sensores.
+
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity simple_position_detector is
+  generic (
+    SLOTS : integer := 7
+  );
+  port (
+    clk_tick   : in  std_logic;
+    rst        : in  std_logic;  -- ACTIVO EN BAJO
+    sensor_in  : in  std_logic;
+    sentido    : in  std_logic;
+    pos_actual : out integer range 0 to 31
+  );
+end simple_position_detector;
+
+architecture rtl of simple_position_detector is
+  signal pos : integer range 0 to 31 := 0;
+  signal sensor_prev : std_logic := '0';
+begin
+  process(clk_tick, rst)
+  begin
+    if rst = '0' then  -- ACTIVO EN BAJO
+      pos <= 0;
+      sensor_prev <= '0';
+    elsif rising_edge(clk_tick) then
+      
+      -- Detectar flanco de BAJADA (1 -> 0)
+      if sensor_in = '0' and sensor_prev = '1' then
+        if sentido = '1' then  -- Horario
+          if pos = SLOTS - 1 then
+            pos <= 0;
+          else
+            pos <= pos + 1;
+          end if;
+        else  -- Antihorario
+          if pos = 0 then
+            pos <= SLOTS - 1;
+          else
+            pos <= pos - 1;
+          end if;
+        end if;
+      end if;
+      
+      -- Guardar el valor anterior
+      sensor_prev <= sensor_in;
+    end if;
+  end process;
+
+  pos_actual <= pos;
+end rtl;
