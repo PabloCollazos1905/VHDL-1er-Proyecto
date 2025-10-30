@@ -1,3 +1,9 @@
+#Control_Logico_Simple
+**Explicacion: 
+Propósito: Bloque combinacional y secuencial de señales de control auxiliares (interlocks, flags de seguridad, señales de habilitación para actuadores).
+Comportamiento principal: Implementa señales como habilitar_motor, habilitar_puerta, buzzer_enable y lógicas de prioridad (emergencia > anomalia > normal).
+Notas para el informe: Explica la jerarquía de priorización en la lógica (parada de emergencia tiene prioridad absoluta) y la necesidad de resets y sincronizadores en entradas asíncronas.
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
