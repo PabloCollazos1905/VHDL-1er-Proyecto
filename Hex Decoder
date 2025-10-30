@@ -1,0 +1,31 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity hex_decoder is
+  port (
+    digit : in  integer range 0 to 9;
+    hex   : out std_logic_vector(6 downto 0)  -- Segmentos a-g
+  );
+end hex_decoder;
+
+architecture Behavioral of hex_decoder is
+begin
+  
+  process(digit)
+  begin
+    case digit is
+      when 0 => hex <= not "1111110";  -- 0
+      when 1 => hex <= not "0110000";  -- 1
+      when 2 => hex <= not "1101101";  -- 2
+      when 3 => hex <= not "1111001";  -- 3
+      when 4 => hex <= not "0110011";  -- 4
+      when 5 => hex <= not "1011011";  -- 5
+      when 6 => hex <= not "1011111";  -- 6
+      when 7 => hex <= not "1110000";  -- 7
+      when 8 => hex <= not "1111111";  -- 8
+      when 9 => hex <= not "1111011";  -- 9
+      when others => hex <= not "0000000";  -- Apagado
+    end case;
+  end process;
+
+end Behavioral;
