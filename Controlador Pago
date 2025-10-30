@@ -1,0 +1,111 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity controlador_pago is
+  port (
+    clk            : in  std_logic;
+    rst            : in  std_logic;
+    sensor_500     : in  std_logic;
+    sensor_1000    : in  std_logic;
+    monto_requerido: in  integer range 0 to 99000;
+    iniciar_pago   : in  std_logic;
+    monto_pagado   : out integer range 0 to 99000;
+    pago_completo  : out std_logic;
+    cambio         : out integer range 0 to 99000
+  );
+end controlador_pago;
+
+architecture Behavioral of controlador_pago is
+  signal monto_acumulado : integer range 0 to 99000 := 0;
+  signal recibiendo_pago : std_logic := '0';
+  signal pago_completo_interno : std_logic := '0';
+  
+  -- Detector de flancos para sensores
+  signal sensor_500_prev : std_logic := '0';
+  signal sensor_1000_prev : std_logic := '0';
+  signal flanco_500 : std_logic := '0';
+  signal flanco_1000 : std_logic := '0';
+  
+  -- Tiempo de bloqueo después de detectar moneda (evita doble conteo)
+  signal bloqueo_500 : integer range 0 to 2000 := 0;
+  signal bloqueo_1000 : integer range 0 to 2000 := 0;
+  
+begin
+
+  process(clk, rst)
+  begin
+    if rst = '0' then
+      monto_acumulado <= 0;
+      pago_completo_interno <= '0';
+      cambio <= 0;
+      recibiendo_pago <= '0';
+      sensor_500_prev <= '0';
+      sensor_1000_prev <= '0';
+      bloqueo_500 <= 0;
+      bloqueo_1000 <= 0;
+      
+    elsif rising_edge(clk) then
+      
+      -- Iniciar pago
+      if iniciar_pago = '1' and recibiendo_pago = '0' then
+        recibiendo_pago <= '1';
+        monto_acumulado <= 0;
+        pago_completo_interno <= '0';
+        cambio <= 0;
+        sensor_500_prev <= '0';
+        sensor_1000_prev <= '0';
+        bloqueo_500 <= 0;
+        bloqueo_1000 <= 0;
+      end if;
+      
+      -- Procesar monedas solo si recibiendo pago
+      if recibiendo_pago = '1' and pago_completo_interno = '0' then
+        
+        -- Detectar flancos de subida
+        sensor_500_prev <= sensor_500;
+        sensor_1000_prev <= sensor_1000;
+        
+        flanco_500 <= sensor_500 and (not sensor_500_prev);
+        flanco_1000 <= sensor_1000 and (not sensor_1000_prev);
+        
+        -- Decrementar contadores de bloqueo
+        if bloqueo_500 > 0 then
+          bloqueo_500 <= bloqueo_500 - 1;
+        end if;
+        
+        if bloqueo_1000 > 0 then
+          bloqueo_1000 <= bloqueo_1000 - 1;
+        end if;
+        
+        -- MONEDA 500: Detectar en flanco y no bloqueado
+        if flanco_500 = '1' and bloqueo_500 = 0 then
+          if monto_acumulado <= 98500 then
+            monto_acumulado <= monto_acumulado + 500;
+          end if;
+          bloqueo_500 <= 2000;  -- Bloquear por 2 segundos (2000 ciclos a 1kHz)
+        end if;
+        
+        -- MONEDA 1000: Detectar en flanco y no bloqueado
+        if flanco_1000 = '1' and bloqueo_1000 = 0 then
+          if monto_acumulado <= 98000 then
+            monto_acumulado <= monto_acumulado + 1000;
+          end if;
+          bloqueo_1000 <= 2000;  -- Bloquear por 2 segundos
+        end if;
+        
+        -- Verificar pago completo
+        if monto_acumulado >= monto_requerido then
+          pago_completo_interno <= '1';
+          cambio <= monto_acumulado - monto_requerido;
+        end if;
+        
+      end if;
+      
+    end if;
+  end process;
+  
+  monto_pagado <= monto_acumulado;
+  pago_completo <= pago_completo_interno;
+
+end Behavioral;
