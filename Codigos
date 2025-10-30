@@ -1,1 +1,363 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
 
+entity control_logico_simple is
+  generic (
+    SLOTS : integer := 7
+  );
+  port (
+    clk               : in  std_logic;
+    rst               : in  std_logic;
+    sensor_ir         : in  std_logic;
+    -- TECLADO MATRICIAL
+    teclado_filas     : in  std_logic_vector(3 downto 0);
+    teclado_columnas  : out std_logic_vector(3 downto 0);
+    -- SENSORES DE MONEDAS (activos en alto cuando detectan moneda)
+    sensor_moneda_500  : in  std_logic;
+    sensor_moneda_1000 : in  std_logic;
+    -- Salidas
+    motor_paso        : out std_logic_vector(3 downto 0);
+    servo_pwm         : out std_logic;
+    leds_salida       : out std_logic_vector(9 downto 0);
+    display_posicion  : out std_logic_vector(6 downto 0);
+    display_comando   : out std_logic_vector(6 downto 0);
+    display_ocupacion : out std_logic_vector(6 downto 0);
+    display_tiempo    : out std_logic_vector(6 downto 0);
+    punto_decimal     : out std_logic
+  );
+end control_logico_simple;
+
+architecture Behavioral of control_logico_simple is
+
+  signal clk_tick       : std_logic := '0';
+  signal sensor_db      : std_logic := '0';
+  signal pos_actual     : integer range 0 to 31 := 0;
+  signal mover_signal   : std_logic := '0';
+  signal sentido_signal : std_logic := '0';
+  signal listo_signal   : std_logic := '0';
+  signal ocupacion      : std_logic_vector(6 downto 0) := (others => '0');
+  signal estado_actual  : std_logic_vector(2 downto 0);
+  signal motor_paso_interno : std_logic_vector(3 downto 0) := "0000";
+  signal servo_enable : std_logic := '0';
+  
+  signal clk_1hz : std_logic := '0';
+  signal contador_1hz : integer range 0 to 50000000 := 0;
+  signal min_dec, min_uni, seg_dec, seg_uni : integer range 0 to 9;
+  signal mostrar_tiempo_enable : std_logic := '0';
+  signal guardar_evento : std_logic := '0';
+  signal pos_guardada : integer range 0 to 6 := 0;
+  signal pos_sacando : integer range 0 to 6 := 0;
+  
+  signal tiempo_minutos : integer range 0 to 99 := 0;
+  signal tarifa_calculada : integer range 0 to 99000 := 0;
+  signal monto_pagado : integer range 0 to 99000 := 0;
+  signal pago_completo_signal : std_logic := '0';
+  signal cambio_signal : integer range 0 to 99000 := 0;
+  signal iniciar_pago_signal : std_logic := '0';
+  
+  -- Señales del teclado
+  signal btn_guardar : std_logic := '0';
+  signal btn_sacar : std_logic := '0';
+  signal btn_reset : std_logic := '0';
+  signal pos_sacar : std_logic_vector(2 downto 0) := "000";
+  
+  -- Señales para sensores de monedas con debounce
+  signal sensor_500_db : std_logic := '0';
+  signal sensor_1000_db : std_logic := '0';
+  signal rst_internal : std_logic := '1';  -- Reset interno
+
+  component DivisordeFrecuencia
+    generic (DIVISOR : integer := 50000);
+    port (clk_in : in std_logic; rst : in std_logic; clk_out : out std_logic);
+  end component;
+
+  component debouncer
+    port (clk_tick : in std_logic; rst : in std_logic; 
+          sig_in : in std_logic; sig_out : out std_logic);
+  end component;
+
+  component motorf
+    port(clk, sw_m, sw_giro, rst, rst_div, sw_vel, set_o : in std_logic;
+         salida : out std_logic_vector(3 downto 0));
+  end component;
+
+begin
+
+  div_inst : DivisordeFrecuencia
+    generic map (DIVISOR => 50000)
+    port map (clk_in => clk, rst => rst, clk_out => clk_tick);
+
+  deb_inst : debouncer
+    port map (clk_tick => clk_tick, rst => rst, 
+              sig_in => sensor_ir, sig_out => sensor_db);
+
+  -- DEBOUNCER PARA SENSOR DE MONEDA 500
+  deb_moneda_500 : debouncer
+    port map (clk_tick => clk_tick, rst => rst,
+              sig_in => sensor_moneda_500, sig_out => sensor_500_db);
+
+  -- DEBOUNCER PARA SENSOR DE MONEDA 1000
+  deb_moneda_1000 : debouncer
+    port map (clk_tick => clk_tick, rst => rst,
+              sig_in => sensor_moneda_1000, sig_out => sensor_1000_db);
+
+  -- RESET COMBINADO (botón físico OR tecla C del teclado)
+  process(rst, btn_reset)
+  begin
+    if rst = '0' or btn_reset = '1' then
+      rst_internal <= '0';
+    else
+      rst_internal <= '1';
+    end if;
+  end process;
+
+  -- ADAPTADOR DEL TECLADO
+  teclado_inst : entity work.teclado_adaptador
+    port map (
+      clk_50mhz   => clk,
+      rst         => rst_internal,
+      y           => teclado_filas,
+      x           => teclado_columnas,
+      btn_guardar => btn_guardar,
+      btn_sacar   => btn_sacar,
+      btn_reset   => btn_reset,
+      pos_sacar   => pos_sacar
+    );
+
+  pos_inst : entity work.simple_position_detector
+    generic map (SLOTS => SLOTS)
+    port map (clk_tick => clk_tick, rst => rst_internal, 
+              sensor_in => sensor_db, sentido => sentido_signal,
+              pos_actual => pos_actual);
+
+  fsm_inst : entity work.control_fsm_simple
+    generic map (SLOTS => SLOTS)
+    port map (
+      clk => clk_tick, 
+      rst => rst_internal, 
+      btn_guardar => btn_guardar, 
+      btn_sacar => btn_sacar,
+      pos_sacar => pos_sacar, 
+      pos_actual => pos_actual,
+      ocupacion => ocupacion, 
+      mover => mover_signal,
+      sentido => sentido_signal, 
+      listo => listo_signal,
+      servo_abrir => servo_enable,
+      mostrar_tiempo => mostrar_tiempo_enable,
+      guardar_event => guardar_evento,
+      pos_guardar => pos_guardada,
+      pago_completo => pago_completo_signal,
+      iniciar_pago => iniciar_pago_signal,
+      estado_debug => estado_actual
+    );
+
+  servo_inst : entity work.servo_controller
+    port map (
+        clk => clk, 
+        rst => rst_internal,
+        enable => servo_enable,
+        servo_pwm => servo_pwm
+    );
+
+  -- Generador de 1 Hz
+  process(clk, rst_internal)
+  begin
+    if rst_internal = '0' then
+      contador_1hz <= 0;
+      clk_1hz <= '0';
+    elsif rising_edge(clk) then
+      if contador_1hz = 49999999 then
+        contador_1hz <= 0;
+        clk_1hz <= '1';
+      else
+        contador_1hz <= contador_1hz + 1;
+        if contador_1hz = 1 then
+          clk_1hz <= '0';
+        end if;
+      end if;
+    end if;
+  end process;
+
+  -- Capturar posición que se está sacando
+  process(clk_tick, rst_internal)
+  begin
+    if rst_internal = '0' then
+      pos_sacando <= 0;
+    elsif rising_edge(clk_tick) then
+      if btn_sacar = '1' then
+        pos_sacando <= to_integer(unsigned(pos_sacar));
+      end if;
+    end if;
+  end process;
+
+  timer_inst : entity work.timer_parqueo
+    generic map (SLOTS => SLOTS)
+    port map (
+      clk_1hz => clk_1hz,
+      rst => rst_internal,
+      ocupacion => ocupacion,
+      pos_guardar => pos_guardada,
+      guardar_event => guardar_evento,
+      pos_sacando => pos_sacando,
+      mostrar_enable => mostrar_tiempo_enable,
+      tiempo_minutos => tiempo_minutos,
+      minutos_dec => min_dec,
+      minutos_uni => min_uni,
+      segundos_dec => seg_dec,
+      segundos_uni => seg_uni
+    );
+
+  tarifa_inst : entity work.calculadora_tarifa
+    port map (
+      tiempo_minutos => tiempo_minutos,
+      tarifa_total => tarifa_calculada
+    );
+
+  pago_inst : entity work.controlador_pago
+    port map (
+      clk => clk_tick,
+      rst => rst_internal,
+      sensor_500 => sensor_500_db,    -- Sensor con debounce
+      sensor_1000 => sensor_1000_db,  -- Sensor con debounce
+      monto_requerido => tarifa_calculada,
+      iniciar_pago => iniciar_pago_signal,
+      monto_pagado => monto_pagado,
+      pago_completo => pago_completo_signal,
+      cambio => cambio_signal
+    );
+
+  motor_inst : motorf
+    port map (clk => clk_tick, sw_m => mover_signal, 
+              sw_giro => sentido_signal, rst => rst_internal,
+              rst_div => '0', sw_vel => '0', set_o => '0',
+              salida => motor_paso_interno);
+
+  motor_paso <= motor_paso_interno;
+
+  -- LEDs de debug COMPLETO
+  leds_salida(0) <= sensor_500_db;        -- Sensor 500 detectando
+  leds_salida(1) <= sensor_1000_db;       -- Sensor 1000 detectando
+  leds_salida(2) <= iniciar_pago_signal;  -- ¿Se inició el pago?
+  leds_salida(3) <= '1' when tarifa_calculada > 0 else '0';  -- ¿Hay tarifa?
+  leds_salida(4) <= '1' when monto_pagado >= tarifa_calculada else '0';  -- ¿Pagado?
+  leds_salida(5) <= pago_completo_signal; -- Pago completo confirmado
+  leds_salida(6) <= servo_enable;         -- Servo activado (puerta abierta)
+  leds_salida(7) <= btn_guardar;          -- Botón guardar
+  leds_salida(8) <= btn_sacar;            -- Botón sacar
+  leds_salida(9) <= mostrar_tiempo_enable; -- Mostrando tiempo/pago
+
+  -- DISPLAY 1 (HEX0): Segundos Unidades
+  process(pos_actual, mostrar_tiempo_enable, seg_uni)
+  begin
+    if mostrar_tiempo_enable = '1' then
+      case seg_uni is
+        when 0 => display_posicion <= "1000000";
+        when 1 => display_posicion <= "1111001";
+        when 2 => display_posicion <= "0100100";
+        when 3 => display_posicion <= "0110000";
+        when 4 => display_posicion <= "0011001";
+        when 5 => display_posicion <= "0010010";
+        when 6 => display_posicion <= "0000010";
+        when 7 => display_posicion <= "1111000";
+        when 8 => display_posicion <= "0000000";
+        when 9 => display_posicion <= "0010000";
+        when others => display_posicion <= "1111111";
+      end case;
+    else
+      case pos_actual is
+        when 0 => display_posicion <= "1000000";
+        when 1 => display_posicion <= "1111001";
+        when 2 => display_posicion <= "0100100";
+        when 3 => display_posicion <= "0110000";
+        when 4 => display_posicion <= "0011001";
+        when 5 => display_posicion <= "0010010";
+        when 6 => display_posicion <= "0000010";
+        when others => display_posicion <= "1000000";
+      end case;
+    end if;
+  end process;
+
+  -- DISPLAY 2 (HEX1): Segundos Decenas
+  process(btn_sacar, pos_sacar, mostrar_tiempo_enable, seg_dec)
+  begin
+    if mostrar_tiempo_enable = '1' then
+      case seg_dec is
+        when 0 => display_comando <= "1000000";
+        when 1 => display_comando <= "1111001";
+        when 2 => display_comando <= "0100100";
+        when 3 => display_comando <= "0110000";
+        when 4 => display_comando <= "0011001";
+        when 5 => display_comando <= "0010010";
+        when 6 => display_comando <= "0000010";
+        when 7 => display_comando <= "1111000";
+        when 8 => display_comando <= "0000000";
+        when 9 => display_comando <= "0010000";
+        when others => display_comando <= "1111111";
+      end case;
+    else
+      case pos_sacar is
+        when "000" => display_comando <= "1000000";
+        when "001" => display_comando <= "1111001";
+        when "010" => display_comando <= "0100100";
+        when "011" => display_comando <= "0110000";
+        when "100" => display_comando <= "0011001";
+        when "101" => display_comando <= "0010010";
+        when "110" => display_comando <= "0000010";
+        when others => display_comando <= "1000000";
+      end case;
+    end if;
+  end process;
+
+  -- DISPLAY 3 (HEX2): Minutos Unidades
+  process(pos_actual, ocupacion, mostrar_tiempo_enable, min_uni)
+  begin
+    if mostrar_tiempo_enable = '1' then
+      case min_uni is
+        when 0 => display_ocupacion <= "1000000";
+        when 1 => display_ocupacion <= "1111001";
+        when 2 => display_ocupacion <= "0100100";
+        when 3 => display_ocupacion <= "0110000";
+        when 4 => display_ocupacion <= "0011001";
+        when 5 => display_ocupacion <= "0010010";
+        when 6 => display_ocupacion <= "0000010";
+        when 7 => display_ocupacion <= "1111000";
+        when 8 => display_ocupacion <= "0000000";
+        when 9 => display_ocupacion <= "0010000";
+        when others => display_ocupacion <= "1111111";
+      end case;
+    else
+      if ocupacion(pos_actual) = '0' then
+        display_ocupacion <= "1000000";
+      else
+        display_ocupacion <= "1111001";
+      end if;
+    end if;
+  end process;
+
+  -- DISPLAY 4 (HEX3): Minutos Decenas
+  process(mostrar_tiempo_enable, min_dec)
+  begin
+    if mostrar_tiempo_enable = '1' then
+      case min_dec is
+        when 0 => display_tiempo <= "1000000";
+        when 1 => display_tiempo <= "1111001";
+        when 2 => display_tiempo <= "0100100";
+        when 3 => display_tiempo <= "0110000";
+        when 4 => display_tiempo <= "0011001";
+        when 5 => display_tiempo <= "0010010";
+        when 6 => display_tiempo <= "0000010";
+        when 7 => display_tiempo <= "1111000";
+        when 8 => display_tiempo <= "0000000";
+        when 9 => display_tiempo <= "0010000";
+        when others => display_tiempo <= "1111111";
+      end case;
+    else
+      display_tiempo <= "1111111";
+    end if;
+  end process;
+
+  punto_decimal <= '0' when (mostrar_tiempo_enable = '1') else '1';
+
+end Behavioral;
