@@ -1,4 +1,4 @@
-#Control_Logico_Simple
+# Control_Logico_Simple
 **Explicacion: 
 Propósito: Bloque combinacional y secuencial de señales de control auxiliares (interlocks, flags de seguridad, señales de habilitación para actuadores).
 Comportamiento principal: Implementa señales como habilitar_motor, habilitar_puerta, buzzer_enable y lógicas de prioridad (emergencia > anomalia > normal).
