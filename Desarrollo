@@ -1,0 +1,35 @@
+En este apartado se resumira el desarrollo de la maqueta con respecto al codigo, dificultades y solucion de dichos problemas.
+A continuacion se comparte un enlace de google drive para visualizar las imagenes del desarrollo, enumeradas respectivamente 
+https://drive.google.com/drive/folders/1liLFRKErtcicFrfnt1813Yn7zlgwFMa0?usp=drive_link
+
+El primer requerimiento al ser un parqueadero vertical, era construir una estructura la cual fuera el soporte del parqueadero con sus respectivos componentes.
+
+FOTO 1
+
+El siguiente paso a realizar fue desarrollar un mecanismo de poleas que a traves de los movimientos secuenciales del motor, se comportara como la logica del proyecto lo necesitaba. 
+Al principio desarrollamos este simple mecanismo, pero a falta de versatilidad de movimiento, ya que la friccion directa de la madera con el soporte de la polea, nos obligo a implementar componentes de rodamieento que permitieran un movimiento mas fluido, ademas de que se tuvieron 
+que reemplazar los soportes de metal por algo mas ligero.
+
+FOTO 2
+FOTO 3
+
+Lo siguiente fue elaborar los modulos donde los carros deberian ser organizados, pero aqui ocurrio un problema con el motor. Debido a que el motor no era muy grande, su potencia no era muy alta, era un motor alimentado con 5 Voltios y 200mAmperios. Asi que al terminar de realizar
+los modulos para los vehiculos y querer probar el funcionamento del parqueadero, se encontro que el motor no era capaz de cambiar las posiciones, por lo que se opto por hacer los modulos de los vehiculos con materiales mas ligeros, tambien incluyendo el cambio de materiales para
+el sistema de poleas
+
+FOTO 4
+FOTO 5
+
+En la siguiente imagen se demuestra la organizacion de la tarjeta programable con los debidos sensores para abrir la puerta del parqueadero
+
+FOTO 6
+
+Finalmente en la ultima imagen se aprecia como para el funcionamiento completo del teclado matricial fue necesario conectar todas sus salidas tambien siguiendo las especificaciones del fabricante para el debido funcionamiento con el codigo que se encargaba de decodificar los codigos 
+hex a decimal.
+
+FOTO 7
+
+El desarrollo del proyecto fue bastante exigente, pone en muestra la creatividad de cada grupo, ayuda a que varias personas tengan opiniones diferentes y permite multiple soluciones a los problemas que se puedan presentar. Proyectos como este invita al estudiante a ir mas alla del
+contenido de la clase e implanta curiosidad para seguir aprendiendo sobre el desarrollo de circuito con VHDL. Uno de los procesos que mas entorpece el desarrollo de estos proyectos son los limitados espacios que se brindan en la universidad para poder ejecutar satisfactoriamente
+estos proyectos. La falta de implementos como tarjetas programables, componentes basicos para el desarrollo de circuitos, y la politica de prestamos no son factores que hagan optimizable el desarrollo de estos trabajos. 
+
