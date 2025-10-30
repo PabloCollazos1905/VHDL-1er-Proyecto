@@ -1,0 +1,274 @@
+Propósito: FSM central de control que orquesta estados principales del sistema (espera, pago, asignar plaza, mover, entregar, lleno, emergencia).
+
+Comportamiento principal: Contiene varios procesos que implementan la lógica de transición entre estados. Maneja eventos: tecla_valida, pago_confirmado, tiempo_expirado, emergencia, puerta_abierta/cerrada, motor_listo.
+
+IDLE — espera selección
+
+ESPERA_PAGO — espera detección de moneda
+
+ASIGNAR — reserva plaza y activa movimiento
+
+MOVER — controla motor hasta posición
+
+ENTREGAR — abre puerta 30 s
+
+CIERRE — espera 50 s y cierra
+
+LLENO — cuando contador_ocupadas == 10
+
+EMERGENCIA — paro y alarmas
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity control_fsm_simple is
+  generic (
+    SLOTS : integer := 7
+  );
+  port (
+    clk          : in  std_logic;
+    rst          : in  std_logic;
+    btn_guardar  : in  std_logic;
+    btn_sacar    : in  std_logic;
+    pos_sacar    : in  std_logic_vector(2 downto 0);
+    pos_actual   : in  integer range 0 to 31;
+    pago_completo: in  std_logic;  -- NUEVO
+    ocupacion    : out std_logic_vector(6 downto 0);
+    mover        : out std_logic;
+    sentido      : out std_logic;
+    listo        : out std_logic;
+    servo_abrir  : out std_logic;
+    mostrar_tiempo : out std_logic;
+    guardar_event  : out std_logic;
+    pos_guardar    : out integer range 0 to 6;
+    iniciar_pago   : out std_logic;  -- NUEVO
+    estado_debug : out std_logic_vector(2 downto 0)
+  );
+end control_fsm_simple;
+
+architecture Behavioral of control_fsm_simple is
+  type state_type is (
+    ESPERA,
+    MOVIENDO_A_DESTINO,
+    ESPERANDO_PAGO, 
+	PAGO_CONFIRMADO,	 
+    ABRIENDO_PUERTA,
+    ESPERANDO_SALIDA,
+    CERRANDO_PUERTA,
+    ACTUALIZAR
+  );
+
+  signal estado : state_type := ESPERA;
+  signal ocupacion_reg : std_logic_vector(6 downto 0) := (others => '0');
+  signal operacion_pendiente : std_logic := '0';
+  signal destino_pendiente : integer range 0 to 6 := 0;
+  signal sentido_objetivo : std_logic := '1';
+  signal contador_espera : integer range 0 to 12000 := 0;
+  constant TIEMPO_ABRIR : integer := 6000;
+  constant TIEMPO_ESPERA : integer := 10000;
+  signal btn_guardar_prev, btn_sacar_prev : std_logic := '1';
+  signal btn_guardar_pulsado, btn_sacar_pulsado : std_logic := '0';
+
+begin
+
+  process(clk, rst)
+  begin
+    if rst = '0' then
+      btn_guardar_prev <= '0';
+      btn_sacar_prev <= '0';
+      btn_guardar_pulsado <= '0';
+      btn_sacar_pulsado <= '0';
+    elsif rising_edge(clk) then
+      btn_guardar_prev <= btn_guardar;
+      btn_sacar_prev <= btn_sacar;
+      if btn_guardar = '1' and btn_guardar_prev = '0' then
+        btn_guardar_pulsado <= '1';
+      else
+        btn_guardar_pulsado <= '0';
+      end if;
+      if btn_sacar = '1' and btn_sacar_prev = '0' then
+        btn_sacar_pulsado <= '1';
+      else
+        btn_sacar_pulsado <= '0';
+      end if;
+    end if;
+  end process;
+
+  process(clk, rst)
+    variable dist_horaria : integer;
+    variable dist_antihoraria : integer;
+  begin
+    if rst = '0' then
+      estado <= ESPERA;
+      ocupacion_reg <= (others => '0');
+      operacion_pendiente <= '0';
+      destino_pendiente <= 0;
+      sentido_objetivo <= '1';
+      mover <= '0';
+      sentido <= '1';
+      listo <= '0';
+      servo_abrir <= '0';
+      mostrar_tiempo <= '0';
+      guardar_event <= '0';
+      pos_guardar <= 0;
+      iniciar_pago <= '0';
+      contador_espera <= 0;
+      
+    elsif rising_edge(clk) then
+      mover <= '0';
+      listo <= '0';
+      servo_abrir <= '0';
+      guardar_event <= '0';
+      iniciar_pago <= '0';
+
+      case estado is
+        when ESPERA =>
+          listo <= '1';
+          mostrar_tiempo <= '0';
+
+          if btn_guardar_pulsado = '1' then
+            for i in 0 to 6 loop
+              if ocupacion_reg(i) = '0' then
+                destino_pendiente <= i;
+                exit;
+              end if;
+            end loop;
+            operacion_pendiente <= '0';
+            
+            if destino_pendiente >= pos_actual then
+              dist_horaria := destino_pendiente - pos_actual;
+            else
+              dist_horaria := (SLOTS - pos_actual) + destino_pendiente;
+            end if;
+            if pos_actual >= destino_pendiente then
+              dist_antihoraria := pos_actual - destino_pendiente;
+            else
+              dist_antihoraria := pos_actual + (SLOTS - destino_pendiente);
+            end if;
+            if dist_horaria <= dist_antihoraria then
+              sentido_objetivo <= '1';
+            else
+              sentido_objetivo <= '0';
+            end if;
+            estado <= MOVIENDO_A_DESTINO;
+
+          elsif btn_sacar_pulsado = '1' then
+            destino_pendiente <= to_integer(unsigned(pos_sacar));
+            if ocupacion_reg(to_integer(unsigned(pos_sacar))) = '1' then
+              operacion_pendiente <= '1';
+              if to_integer(unsigned(pos_sacar)) >= pos_actual then
+                dist_horaria := to_integer(unsigned(pos_sacar)) - pos_actual;
+              else
+                dist_horaria := (SLOTS - pos_actual) + to_integer(unsigned(pos_sacar));
+              end if;
+              if pos_actual >= to_integer(unsigned(pos_sacar)) then
+                dist_antihoraria := pos_actual - to_integer(unsigned(pos_sacar));
+              else
+                dist_antihoraria := pos_actual + (SLOTS - to_integer(unsigned(pos_sacar)));
+              end if;
+              if dist_horaria <= dist_antihoraria then
+                sentido_objetivo <= '1';
+              else
+                sentido_objetivo <= '0';
+              end if;
+              estado <= MOVIENDO_A_DESTINO;
+            end if;
+          end if;
+
+        when MOVIENDO_A_DESTINO =>
+          mover <= '1';
+          sentido <= sentido_objetivo;
+          mostrar_tiempo <= '0';
+          if pos_actual = destino_pendiente then
+            if operacion_pendiente = '1' then
+              mostrar_tiempo <= '1';
+              iniciar_pago <= '1';
+              estado <= ESPERANDO_PAGO;
+            else
+              estado <= ACTUALIZAR;
+            end if;
+          end if;
+			 when ESPERANDO_PAGO =>
+  mover <= '0';
+  mostrar_tiempo <= '1';
+  if pago_completo = '1' then
+    estado <= PAGO_CONFIRMADO;  -- Ir a confirmación primero
+    contador_espera <= 0;
+  end if;
+
+-- NUEVO ESTADO: Espera 3 segundos mostrando confirmación
+when PAGO_CONFIRMADO =>
+  mover <= '0';
+  mostrar_tiempo <= '1';
+  if contador_espera < 3000 then  -- 3 segundos a 1kHz
+    contador_espera <= contador_espera + 1;
+  else
+    contador_espera <= 0;
+    estado <= ABRIENDO_PUERTA;
+  end if;
+
+         
+        when ABRIENDO_PUERTA =>
+          mover <= '0';
+          servo_abrir <= '1';
+          mostrar_tiempo <= '1';
+          if contador_espera < TIEMPO_ABRIR then
+            contador_espera <= contador_espera + 1;
+          else
+            contador_espera <= 0;
+            estado <= ESPERANDO_SALIDA;
+          end if;
+
+        when ESPERANDO_SALIDA =>
+          servo_abrir <= '1';
+          mostrar_tiempo <= '1';
+          if contador_espera < TIEMPO_ESPERA then
+            contador_espera <= contador_espera + 1;
+          else
+            contador_espera <= 0;
+            estado <= CERRANDO_PUERTA;
+          end if;
+
+        when CERRANDO_PUERTA =>
+          servo_abrir <= '0';
+          mostrar_tiempo <= '1';
+          if contador_espera < TIEMPO_ABRIR then
+            contador_espera <= contador_espera + 1;
+          else
+            contador_espera <= 0;
+            estado <= ACTUALIZAR;
+          end if;
+
+        when ACTUALIZAR =>
+          mover <= '0';
+          servo_abrir <= '0';
+          mostrar_tiempo <= '0';
+          if operacion_pendiente = '0' then
+            ocupacion_reg(destino_pendiente) <= '1';
+            guardar_event <= '1';
+            pos_guardar <= destino_pendiente;
+          else
+            ocupacion_reg(destino_pendiente) <= '0';
+          end if;
+          estado <= ESPERA;
+
+      end case;
+    end if;
+  end process;
+
+  ocupacion <= ocupacion_reg;
+
+  with estado select
+  estado_debug <=
+    "000" when ESPERA,
+    "001" when MOVIENDO_A_DESTINO,
+    "010" when ESPERANDO_PAGO,
+    "011" when PAGO_CONFIRMADO,  -- NUEVO
+    "100" when ABRIENDO_PUERTA,
+    "101" when ESPERANDO_SALIDA,
+    "110" when CERRANDO_PUERTA,
+    "111" when ACTUALIZAR;
+
+end Behavioral;
